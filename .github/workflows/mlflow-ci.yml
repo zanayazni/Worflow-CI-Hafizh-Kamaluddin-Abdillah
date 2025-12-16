@@ -116,22 +116,19 @@ jobs:
           MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
         run: |
           set -euo pipefail
+
+          RUN_ID="$(cat MLProject/last_run_id.txt)"
+          echo "Using RUN_ID=${RUN_ID}"
+
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
 
-          if [[ -n "${MODEL_PATH:-}" ]]; then
-            echo "Using MODEL_PATH=${MODEL_PATH}"
-            mlflow models build-docker \
-              -m "${MODEL_PATH}" \
-              -n "${IMAGE_BASE}:${IMAGE_TAG}"
-          else
-            echo "Using MODEL_URI=${MODEL_URI}"
-            mlflow models build-docker \
-              -m "${MODEL_URI}" \
-              -n "${IMAGE_BASE}:${IMAGE_TAG}"
-          fi
+          mlflow models build-docker \
+            -m "runs:/${RUN_ID}/model" \
+            -n "${IMAGE_BASE}:${IMAGE_TAG}"
 
           docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
+
 
       - name: Push Docker image
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
