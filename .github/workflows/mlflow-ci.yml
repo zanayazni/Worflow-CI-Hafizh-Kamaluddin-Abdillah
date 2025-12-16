@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           python - <<'PY' > mlflow_env.txt
           import os
+          from urllib.parse import urlparse, unquote
           from pathlib import Path
           from mlflow.tracking import MlflowClient
 
@@ -69,12 +70,14 @@ jobs:
           artifact_uri = run.info.artifact_uri
 
           print(f"RUN_ID={run_id}")
-          print(f"MODEL_URI=runs:/{run_id}/model")
+            print(f"MODEL_URI=runs:/{run_id}/model")
+            print(f"ARTIFACT_URI={artifact_uri}")
 
           if artifact_uri.startswith("file:"):
-              p = artifact_uri.replace("file:", "")
-              p = p.lstrip("/")
-              model_path = str(Path(p) / "model")
+              parsed = urlparse(artifact_uri)
+              # parsed.path is already absolute on Linux runners (e.g. /home/runner/...)
+              artifact_path = unquote(parsed.path)
+              model_path = str(Path(artifact_path) / "model")
               print(f"MODEL_PATH={model_path}")
           PY
 
@@ -117,14 +120,25 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Make Docker build logs verbose in GitHub Actions
+          export DOCKER_BUILDKIT=1
+          export BUILDKIT_PROGRESS=plain
+
           RUN_ID="$(cat MLProject/last_run_id.txt)"
           echo "Using RUN_ID=${RUN_ID}"
+
+          echo "MLflow model URI: runs:/${RUN_ID}/model"
+          if [[ -n "${MODEL_PATH:-}" ]]; then
+            echo "MLflow model path: ${MODEL_PATH}"
+            ls -la "${MODEL_PATH}" || true
+          fi
 
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
 
+          MODEL_SOURCE="${MODEL_PATH:-runs:/${RUN_ID}/model}"
           mlflow models build-docker \
-            -m "runs:/${RUN_ID}/model" \
+            -m "${MODEL_SOURCE}" \
             -n "${IMAGE_BASE}:${IMAGE_TAG}"
 
           docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
