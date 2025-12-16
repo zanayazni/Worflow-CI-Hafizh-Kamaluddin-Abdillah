@@ -41,6 +41,50 @@ jobs:
             --tracking_uri "file:${GITHUB_WORKSPACE}/mlruns" \
             --experiment_name "CI - Seattle Weather Best RandomForest"
 
+      - name: Debug MLflow + Docker
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: bash -l {0}
+        run: |
+          set -euo pipefail
+          python -V
+          python -m pip --version
+          mlflow --version
+          docker version
+
+      - name: Resolve model path from MLflow run
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: bash -l {0}
+        env:
+          MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
+        run: |
+          set -euo pipefail
+          python - <<'PY' > mlflow_env.txt
+          import os
+          from pathlib import Path
+          from mlflow.tracking import MlflowClient
+
+          run_id = Path("MLProject/last_run_id.txt").read_text(encoding="utf-8").strip()
+          tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+          client = MlflowClient(tracking_uri=tracking_uri)
+          run = client.get_run(run_id)
+
+          artifact_uri = run.info.artifact_uri
+          print(f"RUN_ID={run_id}")
+
+          # Prefer local filesystem path to avoid URI-resolution issues in build-docker
+          if artifact_uri.startswith("file:"):
+              p = artifact_uri[len("file:") :]
+              if p.startswith("//"):
+                  p = p[2:]
+              model_path = str(Path(p) / "model")
+              print(f"MODEL_PATH={model_path}")
+          else:
+              print(f"MODEL_URI=runs:/{run_id}/model")
+          PY
+
+          cat mlflow_env.txt
+          cat mlflow_env.txt >> "$GITHUB_ENV"
+
       - name: Commit training artifacts back to repo
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         shell: bash
@@ -77,14 +121,20 @@ jobs:
           MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
         run: |
           set -euo pipefail
-
-          RUN_ID="$(cat MLProject/last_run_id.txt)"
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
 
-          mlflow models build-docker \
-            -m "runs:/${RUN_ID}/model" \
-            -n "${IMAGE_BASE}:${IMAGE_TAG}"
+          if [[ -n "${MODEL_PATH:-}" ]]; then
+            echo "Building Docker image from MODEL_PATH=${MODEL_PATH}"
+            mlflow models build-docker \
+              -m "${MODEL_PATH}" \
+              -n "${IMAGE_BASE}:${IMAGE_TAG}"
+          else
+            echo "MODEL_PATH not set; falling back to MODEL_URI=${MODEL_URI:-runs:/${RUN_ID}/model}"
+            mlflow models build-docker \
+              -m "${MODEL_URI:-runs:/${RUN_ID}/model}" \
+              -n "${IMAGE_BASE}:${IMAGE_TAG}"
+          fi
 
           docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
 

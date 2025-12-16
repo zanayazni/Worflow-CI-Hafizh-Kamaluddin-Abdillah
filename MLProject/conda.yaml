@@ -5,7 +5,10 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.8
+  - python=3.10
+  - pip
   - pandas
   - scikit-learn
-  - mlflow
+  - pip:
+      - "mlflow>=2.9,<3"
+      - "docker>=6"
