@@ -1,0 +1,125 @@
+import argparse
+from pathlib import Path
+
+import mlflow
+import mlflow.sklearn
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    confusion_matrix,
+    classification_report,
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--tracking_uri",
+        type=str,
+        default="http://127.0.0.1:5000",
+        help="MLflow tracking URI (lokal / DagsHub)",
+    )
+    parser.add_argument(
+        "--experiment_name",
+        type=str,
+        default="CI - Seattle Weather Best RandomForest",
+        help="Nama experiment di MLflow",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    mlflow.set_tracking_uri(args.tracking_uri)
+    mlflow.set_experiment(args.experiment_name)
+
+    base_dir = Path(__file__).resolve().parent
+    data_path = base_dir / "seattle-weather_preprocessing.csv"
+
+    df = pd.read_csv(data_path)
+
+    X = df.drop(columns=["weather"])
+    y = df["weather"]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y,
+    )
+
+    best_params = {
+        "n_estimators": 400,
+        "max_depth": 20,
+        "min_samples_split": 4,
+        "min_samples_leaf": 2,
+        "max_features": "sqrt",
+        "bootstrap": True,
+    }
+
+    with mlflow.start_run(run_name="CI_Best_RandomForest_SeattleWeather") as run:
+        run_id = run.info.run_id
+        run_id_path = base_dir / "last_run_id.txt"
+
+        with open(run_id_path, "w") as f:
+            f.write(run_id)
+        mlflow.log_artifact(run_id_path)
+
+        model = RandomForestClassifier(
+            random_state=42,
+            n_jobs=-1,
+            **best_params,
+        )
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average="weighted")
+        precision = precision_score(
+            y_test, y_pred, average="weighted", zero_division=0
+        )
+        recall = recall_score(
+            y_test, y_pred, average="weighted", zero_division=0
+        )
+
+        cm = confusion_matrix(y_test, y_pred)
+
+        mlflow.log_param("model_name", "RandomForest_Best_Params_CI")
+        for k, v in best_params.items():
+            mlflow.log_param(k, v)
+
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("f1_weighted", f1)
+        mlflow.log_metric("precision_weighted", precision)
+        mlflow.log_metric("recall_weighted", recall)
+
+        mlflow.sklearn.log_model(model, artifact_path="model")
+        cm_path = base_dir / "confusion_matrix.txt"
+        with open(cm_path, "w") as f:
+            f.write(str(cm))
+        mlflow.log_artifact(cm_path)
+
+        report_text = classification_report(y_test, y_pred)
+        report_path = base_dir / "classification_report_rf_ci.txt"
+        with open(report_path, "w") as f:
+            f.write(report_text)
+        mlflow.log_artifact(report_path)
+
+        print("=== HASIL PELATIHAN CI (SEATTLE WEATHER) ===")
+        print(f"Accuracy : {accuracy:.4f}")
+        print(f"F1-Score : {f1:.4f}")
+        print(f"Precision: {precision:.4f}")
+        print(f"Recall   : {recall:.4f}")
+        print("Confusion Matrix:")
+        print(cm)
+
+
+if __name__ == "__main__":
+    main()

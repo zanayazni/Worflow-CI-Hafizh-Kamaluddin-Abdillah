@@ -1,0 +1,98 @@
+name: ML Training + Docker (MLflow)
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "MLProject/classification_report_rf_ci.txt"
+      - "MLProject/confusion_matrix.txt"
+      - "MLProject/last_run_id.txt"
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  train-and-dockerize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: mlproject-env
+          environment-file: MLProject/conda.yaml
+
+      - name: Train model (logs to local MLflow store)
+        shell: bash -l {0}
+        working-directory: MLProject
+        run: |
+          set -euo pipefail
+          python modelling.py \
+            --tracking_uri "file:${GITHUB_WORKSPACE}/mlruns" \
+            --experiment_name "CI - Seattle Weather Best RandomForest"
+
+      - name: Commit training artifacts back to repo
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            MLProject/classification_report_rf_ci.txt \
+            MLProject/confusion_matrix.txt \
+            MLProject/last_run_id.txt
+
+          if git diff --cached --quiet; then
+            echo "No artifact changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(ci): update ML artifacts [skip ci]"
+          git push
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image via MLflow
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash -l {0}
+        env:
+          MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
+        run: |
+          set -euo pipefail
+
+          RUN_ID="$(cat MLProject/last_run_id.txt)"
+          IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
+          IMAGE_TAG="ci-${{ github.run_number }}"
+
+          mlflow models build-docker \
+            -m "runs:/${RUN_ID}/model" \
+            -n "${IMAGE_BASE}:${IMAGE_TAG}"
+
+          docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
+
+      - name: Push Docker image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
+          IMAGE_TAG="ci-${{ github.run_number }}"
+          docker push "${IMAGE_BASE}:${IMAGE_TAG}"
+          docker push "${IMAGE_BASE}:latest"
