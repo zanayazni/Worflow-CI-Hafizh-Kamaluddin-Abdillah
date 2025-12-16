@@ -2,14 +2,15 @@ name: ML Training + Docker (MLflow)
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master"]
     paths-ignore:
       - "MLProject/classification_report_rf_ci.txt"
       - "MLProject/confusion_matrix.txt"
       - "MLProject/last_run_id.txt"
   pull_request:
-    branches: ["main"]
+    branches: ["master"]
   workflow_dispatch:
+
 
 permissions:
   contents: write
@@ -41,7 +42,7 @@ jobs:
             --experiment_name "CI - Seattle Weather Best RandomForest"
 
       - name: Commit training artifacts back to repo
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         shell: bash
         run: |
           set -euo pipefail
@@ -63,14 +64,14 @@ jobs:
           git push
 
       - name: Log in to Docker Hub
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build Docker image via MLflow
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         shell: bash -l {0}
         env:
           MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
@@ -88,7 +89,7 @@ jobs:
           docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
 
       - name: Push Docker image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         shell: bash
         run: |
           set -euo pipefail
