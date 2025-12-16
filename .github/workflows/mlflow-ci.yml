@@ -11,7 +11,6 @@ on:
     branches: ["master"]
   workflow_dispatch:
 
-
 permissions:
   contents: write
 
@@ -47,7 +46,6 @@ jobs:
         run: |
           set -euo pipefail
           python -V
-          python -m pip --version
           mlflow --version
           docker version
 
@@ -63,23 +61,21 @@ jobs:
           from pathlib import Path
           from mlflow.tracking import MlflowClient
 
-          run_id = Path("MLProject/last_run_id.txt").read_text(encoding="utf-8").strip()
-          tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+          run_id = Path("MLProject/last_run_id.txt").read_text().strip()
+          tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
           client = MlflowClient(tracking_uri=tracking_uri)
           run = client.get_run(run_id)
 
           artifact_uri = run.info.artifact_uri
-          print(f"RUN_ID={run_id}")
 
-          # Prefer local filesystem path to avoid URI-resolution issues in build-docker
+          print(f"RUN_ID={run_id}")
+          print(f"MODEL_URI=runs:/{run_id}/model")
+
           if artifact_uri.startswith("file:"):
-              p = artifact_uri[len("file:") :]
-              if p.startswith("//"):
-                  p = p[2:]
+              p = artifact_uri.replace("file:", "")
+              p = p.lstrip("/")
               model_path = str(Path(p) / "model")
               print(f"MODEL_PATH={model_path}")
-          else:
-              print(f"MODEL_URI=runs:/{run_id}/model")
           PY
 
           cat mlflow_env.txt
@@ -90,7 +86,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -125,14 +120,14 @@ jobs:
           IMAGE_TAG="ci-${{ github.run_number }}"
 
           if [[ -n "${MODEL_PATH:-}" ]]; then
-            echo "Building Docker image from MODEL_PATH=${MODEL_PATH}"
+            echo "Using MODEL_PATH=${MODEL_PATH}"
             mlflow models build-docker \
               -m "${MODEL_PATH}" \
               -n "${IMAGE_BASE}:${IMAGE_TAG}"
           else
-            echo "MODEL_PATH not set; falling back to MODEL_URI=${MODEL_URI:-runs:/${RUN_ID}/model}"
+            echo "Using MODEL_URI=${MODEL_URI}"
             mlflow models build-docker \
-              -m "${MODEL_URI:-runs:/${RUN_ID}/model}" \
+              -m "${MODEL_URI}" \
               -n "${IMAGE_BASE}:${IMAGE_TAG}"
           fi
 
