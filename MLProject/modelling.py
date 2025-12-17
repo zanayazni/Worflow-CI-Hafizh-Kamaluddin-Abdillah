@@ -62,59 +62,75 @@ def main():
         "bootstrap": True,
     }
 
-    run = mlflow.active_run()
-    run_id = run.info.run_id
-    print(f"[INFO] Active MLflow Run ID: {run_id}")
+    run_name = "CI_Best_RandomForest_SeattleWeather"
+    existing_run_id = os.getenv("MLFLOW_RUN_ID")
 
-    # Simpan run_id untuk CI
-    run_id_path = base_dir / "last_run_id.txt"
-    run_id_path.write_text(run_id)
+    
+    if existing_run_id:
+        run_context = mlflow.start_run(run_id=existing_run_id)
+    else:
+        run_context = mlflow.start_run(run_name=run_name)
 
-    model = RandomForestClassifier(
-        random_state=42,
-        n_jobs=-1,
-        **best_params,
-    )
-    model.fit(X_train, y_train)
+    with run_context:
+        run = mlflow.active_run()
+        if run is None:
+            raise RuntimeError("Failed to start or resume an MLflow run.")
 
-    y_pred = model.predict(X_test)
+        run_id = run.info.run_id
+        print(f"[INFO] MLflow Run ID: {run_id}")
 
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, average="weighted")
-    precision = precision_score(
-        y_test, y_pred, average="weighted", zero_division=0
-    )
-    recall = recall_score(
-        y_test, y_pred, average="weighted", zero_division=0
-    )
+        # Simpan run_id untuk CI
+        run_id_path = base_dir / "last_run_id.txt"
+        run_id_path.write_text(run_id, encoding="utf-8")
 
-    cm = confusion_matrix(y_test, y_pred)
+        model = RandomForestClassifier(
+            random_state=42,
+            n_jobs=-1,
+            **best_params,
+        )
+        model.fit(X_train, y_train)
 
-    # Logging ke MLflow
-    mlflow.log_param("model_name", "RandomForest_Best_Params_CI")
-    for k, v in best_params.items():
-        mlflow.log_param(k, v)
+        y_pred = model.predict(X_test)
 
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.log_metric("f1_weighted", f1)
-    mlflow.log_metric("precision_weighted", precision)
-    mlflow.log_metric("recall_weighted", recall)
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average="weighted")
+        precision = precision_score(
+            y_test, y_pred, average="weighted", zero_division=0
+        )
+        recall = recall_score(
+            y_test, y_pred, average="weighted", zero_division=0
+        )
 
-    mlflow.sklearn.log_model(model, artifact_path="model")
+        cm = confusion_matrix(y_test, y_pred)
 
-    cm_path = base_dir / "confusion_matrix.txt"
-    cm_path.write_text(str(cm))
-    mlflow.log_artifact(cm_path)
+        # Logging ke MLflow
+        mlflow.log_param("model_name", "RandomForest_Best_Params_CI")
+        for k, v in best_params.items():
+            mlflow.log_param(k, v)
 
-    report_path = base_dir / "classification_report_rf_ci.txt"
-    report_path.write_text(classification_report(y_test, y_pred))
-    mlflow.log_artifact(report_path)
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("f1_weighted", f1)
+        mlflow.log_metric("precision_weighted", precision)
+        mlflow.log_metric("recall_weighted", recall)
 
-    mlflow.log_artifact(run_id_path)
+        mlflow.sklearn.log_model(model, artifact_path="model")
 
-    print("=== CI TRAINING FINISHED ===")
-    print(f"Accuracy : {accuracy:.4f}")
-    print(f"F1-Score : {f1:.4f}")
+        cm_path = base_dir / "confusion_matrix.txt"
+        cm_path.write_text(str(cm), encoding="utf-8")
+        mlflow.log_artifact(cm_path)
+
+        report_path = base_dir / "classification_report_rf_ci.txt"
+        report_path.write_text(
+            classification_report(y_test, y_pred),
+            encoding="utf-8",
+        )
+        mlflow.log_artifact(report_path)
+
+        mlflow.log_artifact(run_id_path)
+
+        print("=== CI TRAINING FINISHED ===")
+        print(f"Accuracy : {accuracy:.4f}")
+        print(f"F1-Score : {f1:.4f}")
 
 
 if __name__ == "__main__":
