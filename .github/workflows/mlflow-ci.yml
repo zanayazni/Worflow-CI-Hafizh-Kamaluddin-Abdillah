@@ -18,6 +18,10 @@ jobs:
   train-and-dockerize:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        shell: bash -l {0}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -75,6 +79,8 @@ jobs:
           RUN_ID=$(cat MLProject/last_run_id.txt)
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
+
+          mlflow --version
 
           mlflow models build-docker \
             -m "runs:/${RUN_ID}/model" \
