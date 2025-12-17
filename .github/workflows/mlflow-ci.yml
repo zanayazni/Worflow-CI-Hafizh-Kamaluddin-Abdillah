@@ -44,6 +44,39 @@ jobs:
             --env-manager=local \
             --experiment-name "CI - Seattle Weather RF"
 
+      - name: Get latest MLflow run_id
+        shell: bash -l {0}
+        env:
+          MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from mlflow.tracking import MlflowClient
+
+          tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
+          experiment_name = "CI - Seattle Weather RF"
+          client = MlflowClient(tracking_uri=tracking_uri)
+
+          exp = client.get_experiment_by_name(experiment_name)
+          if exp is None:
+              raise SystemExit(f"Experiment not found: {experiment_name}")
+
+          runs = client.search_runs(
+              experiment_ids=[exp.experiment_id],
+              order_by=["attributes.start_time DESC"],
+              max_results=1,
+          )
+          if not runs:
+              raise SystemExit("No runs found in experiment")
+
+          run_id = runs[0].info.run_id
+          out_path = Path("MLProject/last_run_id.txt")
+          out_path.write_text(run_id, encoding="utf-8")
+          print(f"Latest RUN_ID={run_id}")
+          PY
+
       - name: Commit training artifacts
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
