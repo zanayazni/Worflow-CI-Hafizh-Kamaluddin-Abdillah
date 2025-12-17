@@ -23,13 +23,14 @@ def parse_args():
         "--experiment_name",
         type=str,
         default="CI - Seattle Weather Best RandomForest",
-        help="Nama experiment di MLflow",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Tracking URI dari ENV (MLflow Project-friendly)
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(args.experiment_name)
@@ -61,62 +62,59 @@ def main():
         "bootstrap": True,
     }
 
-    with mlflow.start_run(run_name="CI_Best_RandomForest_SeattleWeather") as run:
-        run_id = run.info.run_id
-        print(f"[INFO] MLflow Run ID: {run_id}")
+    run = mlflow.active_run()
+    run_id = run.info.run_id
+    print(f"[INFO] Active MLflow Run ID: {run_id}")
 
-        run_id_path = base_dir / "last_run_id.txt"
-        run_id_path.write_text(run_id)
+    # Simpan run_id untuk CI
+    run_id_path = base_dir / "last_run_id.txt"
+    run_id_path.write_text(run_id)
 
-        model = RandomForestClassifier(
-            random_state=42,
-            n_jobs=-1,
-            **best_params,
-        )
-        model.fit(X_train, y_train)
+    model = RandomForestClassifier(
+        random_state=42,
+        n_jobs=-1,
+        **best_params,
+    )
+    model.fit(X_train, y_train)
 
-        y_pred = model.predict(X_test)
+    y_pred = model.predict(X_test)
 
-        accuracy = accuracy_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred, average="weighted")
-        precision = precision_score(
-            y_test, y_pred, average="weighted", zero_division=0
-        )
-        recall = recall_score(
-            y_test, y_pred, average="weighted", zero_division=0
-        )
+    accuracy = accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, average="weighted")
+    precision = precision_score(
+        y_test, y_pred, average="weighted", zero_division=0
+    )
+    recall = recall_score(
+        y_test, y_pred, average="weighted", zero_division=0
+    )
 
-        cm = confusion_matrix(y_test, y_pred)
+    cm = confusion_matrix(y_test, y_pred)
 
-        mlflow.log_param("model_name", "RandomForest_Best_Params_CI")
-        for k, v in best_params.items():
-            mlflow.log_param(k, v)
+    # Logging ke MLflow
+    mlflow.log_param("model_name", "RandomForest_Best_Params_CI")
+    for k, v in best_params.items():
+        mlflow.log_param(k, v)
 
-        mlflow.log_metric("accuracy", accuracy)
-        mlflow.log_metric("f1_weighted", f1)
-        mlflow.log_metric("precision_weighted", precision)
-        mlflow.log_metric("recall_weighted", recall)
+    mlflow.log_metric("accuracy", accuracy)
+    mlflow.log_metric("f1_weighted", f1)
+    mlflow.log_metric("precision_weighted", precision)
+    mlflow.log_metric("recall_weighted", recall)
 
-        mlflow.sklearn.log_model(model, artifact_path="model")
+    mlflow.sklearn.log_model(model, artifact_path="model")
 
-        cm_path = base_dir / "confusion_matrix.txt"
-        cm_path.write_text(str(cm))
-        mlflow.log_artifact(cm_path)
+    cm_path = base_dir / "confusion_matrix.txt"
+    cm_path.write_text(str(cm))
+    mlflow.log_artifact(cm_path)
 
-        report_text = classification_report(y_test, y_pred)
-        report_path = base_dir / "classification_report_rf_ci.txt"
-        report_path.write_text(report_text)
-        mlflow.log_artifact(report_path)
+    report_path = base_dir / "classification_report_rf_ci.txt"
+    report_path.write_text(classification_report(y_test, y_pred))
+    mlflow.log_artifact(report_path)
 
-        mlflow.log_artifact(run_id_path)
+    mlflow.log_artifact(run_id_path)
 
-        print("=== HASIL PELATIHAN CI (SEATTLE WEATHER) ===")
-        print(f"Accuracy : {accuracy:.4f}")
-        print(f"F1-Score : {f1:.4f}")
-        print(f"Precision: {precision:.4f}")
-        print(f"Recall   : {recall:.4f}")
-        print("Confusion Matrix:")
-        print(cm)
+    print("=== CI TRAINING FINISHED ===")
+    print(f"Accuracy : {accuracy:.4f}")
+    print(f"F1-Score : {f1:.4f}")
 
 
 if __name__ == "__main__":
