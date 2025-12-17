@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 
 import mlflow
@@ -19,12 +20,6 @@ from sklearn.metrics import (
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--tracking_uri",
-        type=str,
-        default="http://127.0.0.1:5000",
-        help="MLflow tracking URI (lokal / DagsHub)",
-    )
-    parser.add_argument(
         "--experiment_name",
         type=str,
         default="CI - Seattle Weather Best RandomForest",
@@ -35,8 +30,11 @@ def parse_args():
 
 def main():
     args = parse_args()
-    mlflow.set_tracking_uri(args.tracking_uri)
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
+    mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(args.experiment_name)
+
+    print(f"[INFO] Using MLflow tracking URI: {tracking_uri}")
 
     base_dir = Path(__file__).resolve().parent
     data_path = base_dir / "seattle-weather_preprocessing.csv"
@@ -65,11 +63,10 @@ def main():
 
     with mlflow.start_run(run_name="CI_Best_RandomForest_SeattleWeather") as run:
         run_id = run.info.run_id
-        run_id_path = base_dir / "last_run_id.txt"
+        print(f"[INFO] MLflow Run ID: {run_id}")
 
-        with open(run_id_path, "w") as f:
-            f.write(run_id)
-        mlflow.log_artifact(run_id_path)
+        run_id_path = base_dir / "last_run_id.txt"
+        run_id_path.write_text(run_id)
 
         model = RandomForestClassifier(
             random_state=42,
@@ -101,16 +98,17 @@ def main():
         mlflow.log_metric("recall_weighted", recall)
 
         mlflow.sklearn.log_model(model, artifact_path="model")
+
         cm_path = base_dir / "confusion_matrix.txt"
-        with open(cm_path, "w") as f:
-            f.write(str(cm))
+        cm_path.write_text(str(cm))
         mlflow.log_artifact(cm_path)
 
         report_text = classification_report(y_test, y_pred)
         report_path = base_dir / "classification_report_rf_ci.txt"
-        with open(report_path, "w") as f:
-            f.write(report_text)
+        report_path.write_text(report_text)
         mlflow.log_artifact(report_path)
+
+        mlflow.log_artifact(run_id_path)
 
         print("=== HASIL PELATIHAN CI (SEATTLE WEATHER) ===")
         print(f"Accuracy : {accuracy:.4f}")
