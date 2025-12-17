@@ -3,6 +3,10 @@ name: ML Training + Docker (MLflow Project)
 on:
   push:
     branches: ["master"]
+    paths-ignore:
+      - "MLProject/classification_report_rf_ci.txt"
+      - "MLProject/confusion_matrix.txt"
+      - "MLProject/last_run_id.txt"
   pull_request:
     branches: ["master"]
   workflow_dispatch:
@@ -33,19 +37,11 @@ jobs:
         run: |
           set -euo pipefail
           mlflow run . \
-            --env-manager=conda \
-            -P experiment_name="CI - Seattle Weather RF"
-      
-      - name: Get latest MLflow run_id
-        shell: bash
-        run: |
-          set -euo pipefail
-          RUN_ID=$(ls -td mlruns/*/* | head -1 | awk -F/ '{print $(NF)}')
-          echo "$RUN_ID" > MLProject/last_run_id.txt
-          echo "Latest RUN_ID=$RUN_ID"
+            --env-manager=local \
+            --experiment-name "CI - Seattle Weather RF"
 
       - name: Commit training artifacts
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -64,17 +60,18 @@ jobs:
           git push
 
       - name: Log in to Docker Hub
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build Docker image via MLflow
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         env:
           MLFLOW_TRACKING_URI: file:${{ github.workspace }}/mlruns
         run: |
+          set -euo pipefail
           RUN_ID=$(cat MLProject/last_run_id.txt)
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
@@ -86,8 +83,9 @@ jobs:
           docker tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
 
       - name: Push Docker image
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
+          set -euo pipefail
           IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/seattle-weather-mlflow"
           IMAGE_TAG="ci-${{ github.run_number }}"
           docker push "${IMAGE_BASE}:${IMAGE_TAG}"

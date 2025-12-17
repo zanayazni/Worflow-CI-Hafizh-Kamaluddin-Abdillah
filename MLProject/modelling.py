@@ -1,6 +1,7 @@
 import argparse
 import os
 from pathlib import Path
+from contextlib import nullcontext
 
 import mlflow
 import mlflow.sklearn
@@ -30,10 +31,15 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # Tracking URI dari ENV (MLflow Project-friendly)
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
     mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment(args.experiment_name)
+    
+    if os.getenv("MLFLOW_RUN_ID") or os.getenv("MLFLOW_EXPERIMENT_ID"):
+        print(
+            "[INFO] Detected MLflow Projects run; skipping mlflow.set_experiment(...)"
+        )
+    else:
+        mlflow.set_experiment(args.experiment_name)
 
     print(f"[INFO] Using MLflow tracking URI: {tracking_uri}")
 
@@ -63,11 +69,10 @@ def main():
     }
 
     run_name = "CI_Best_RandomForest_SeattleWeather"
-    existing_run_id = os.getenv("MLFLOW_RUN_ID")
 
-    
-    if existing_run_id:
-        run_context = mlflow.start_run(run_id=existing_run_id)
+    active = mlflow.active_run()
+    if active is not None:
+        run_context = nullcontext()
     else:
         run_context = mlflow.start_run(run_name=run_name)
 
